@@ -342,7 +342,12 @@ tr:hover td{background:var(--gray-50)}
   <div class="section-sub">Base de datos de clientes</div>
   <div class="toolbar">
     <button class="btn btn-primary" onclick="openClienteModal()">+ Cliente</button>
+    <button class="btn btn-secondary" onclick="document.getElementById('importClientesFile').click()">📥 Importar Excel</button>
+    <input type="file" id="importClientesFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarClientesExcel(this)"/>
     <input class="search-input" style="flex:1;min-width:160px" placeholder="Buscar por nombre, tel&eacute;fono o placa..." id="clienteSearch" oninput="renderClientes()"/>
+  </div>
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 12px;font-size:12px;color:#1e40af;margin-bottom:8px">
+    📋 <strong>Columnas reconocidas en el Excel:</strong> Nombre · Teléfono · Email · Dirección &nbsp;|&nbsp; Los clientes existentes se actualizan si coincide nombre o teléfono.
   </div>
   <div id="clientesList"></div>
 </div>
@@ -2355,6 +2360,66 @@ function showClienteDetail(id) {
   openModal('clienteDetailOv');
 }
 
+
+function importarClientesExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!rows.length) { toast('El archivo está vacío', 'error'); return; }
+
+      // Mapeo flexible de columnas
+      function col(row, ...keys) {
+        for (const k of keys) {
+          const found = Object.keys(row).find(rk => rk.toLowerCase().trim() === k.toLowerCase());
+          if (found !== undefined && row[found] !== '') return String(row[found]).trim();
+        }
+        return '';
+      }
+
+      const clientes = LS.get('ej_clientes') || [];
+      let agregados = 0, actualizados = 0;
+
+      rows.forEach(r => {
+        const nombre = col(r, 'nombre', 'name', 'cliente', 'razón social', 'razon social');
+        const tel    = col(r, 'teléfono', 'telefono', 'tel', 'phone', 'celular', 'móvil', 'movil');
+        const email  = col(r, 'email', 'correo', 'e-mail');
+        const dir    = col(r, 'dirección', 'direccion', 'dir', 'address', 'domicilio');
+        if (!nombre && !tel) return;
+
+        const dup = clientes.find(c =>
+          (nombre && c.nombre.toLowerCase() === nombre.toLowerCase()) ||
+          (tel && c.tel && c.tel.replace(/\D/g,'') === tel.replace(/\D/g,''))
+        );
+        if (dup) {
+          if (nombre) dup.nombre = nombre;
+          if (tel) dup.tel = tel;
+          if (email) dup.email = email;
+          if (dir) dup.dir = dir;
+          actualizados++;
+        } else {
+          clientes.push({ id: uid(), nombre: nombre || tel, tel, email, dir, createdAt: new Date().toISOString() });
+          agregados++;
+        }
+      });
+
+      LS.set('ej_clientes', clientes);
+      renderClientes();
+      populateClientesSelects();
+      toast(`✅ ${agregados} cliente(s) nuevos, ${actualizados} actualizados`);
+    } catch(err) {
+      console.error(err);
+      toast('Error al leer el archivo Excel', 'error');
+    } finally {
+      input.value = '';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
 
 // ═══════════════════════════════════════
 // AGENDA
