@@ -856,7 +856,7 @@ const SECTIONS_CONFIG = [
 let currentUser = null;
 let currentSection = 'dashboard';
 let dashChart = null;
-let finChart1 = null, finChart2 = null;
+let finChart1 = null, finChart2 = null, finChart3 = null;
 let invPage = 1, ventaPage = 1;
 const PAGE_SIZE = 50;
 let invFilter = 'all';
@@ -1024,11 +1024,22 @@ function navigate(sec) {
 }
 
 function renderSection(sec) {
+  // Show/hide restricted overlay without destroying section HTML
+  const secEl = document.getElementById('sec-'+sec);
+  let overlay = secEl ? secEl.querySelector('.restricted-overlay') : null;
   if (!hasPermission(sec)) {
-    const el = document.getElementById('sec-'+sec);
-    if (el) el.innerHTML = `<div class="restricted"><div class="lock">🔒</div><h2>Acceso Restringido</h2><p>No tienes permiso para ver esta sección.</p></div>`;
+    if (secEl && !overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'restricted-overlay restricted';
+      overlay.innerHTML = '<div class="lock">🔒</div><h2>Acceso Restringido</h2><p>No tienes permiso para ver esta sección.</p>';
+      overlay.style.cssText = 'position:absolute;inset:0;background:var(--white);z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+      secEl.style.position = 'relative';
+      secEl.appendChild(overlay);
+    }
     return;
   }
+  // Remove overlay if user now has permission
+  if (overlay) overlay.remove();
   switch(sec) {
     case 'dashboard': renderDashboard(); break;
     case 'ventas': renderVentas(); break;
@@ -2409,7 +2420,7 @@ function importarClientesExcel(input) {
 
       LS.set('ej_clientes', clientes);
       renderClientes();
-      populateClientesSelects();
+      populateClienteSelects();
       toast(`✅ ${agregados} cliente(s) nuevos, ${actualizados} actualizados`);
     } catch(err) {
       console.error(err);
@@ -2541,86 +2552,218 @@ function delCita(id) {
 // ═══════════════════════════════════════
 // FINANZAS
 // ═══════════════════════════════════════
+// ═══ HELPERS FINANCIEROS ═══
+function getMonthData(ventas, gastos, ym) {
+  const v = ventas.filter(x=>x.fecha&&x.fecha.startsWith(ym));
+  const g = gastos.filter(x=>x.mes===ym);
+  const ingresos = v.reduce((s,x)=>s+(+x.total||0),0);
+  const costos   = v.reduce((s,x)=>s+(+x.costo||0),0);
+  const gFijos   = g.reduce((s,x)=>s+(+x.monto||0),0);
+  return { ingresos, costos, utilBruta: ingresos-costos, gFijos, utilNeta: ingresos-costos-gFijos };
+}
+
+function last12Months() {
+  const months=[];
+  const now=new Date();
+  for(let i=11;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    months.push(d.toISOString().slice(0,7));
+  }
+  return months;
+}
+
 let finPeriod='month';
+
 function renderFinanzas() {
   const el=document.getElementById('finanzasContent');
   const ventas=LS.get('ej_ventas')||[];
   const gastos=LS.get('ej_gastos')||[];
   const now=new Date();
   const ym=now.toISOString().slice(0,7);
+  const yr=now.getFullYear().toString();
 
-  let vFilt=ventas,gFilt=gastos;
+  // ─── Filtrar por período seleccionado ───
+  let vFilt=ventas, gFilt=gastos;
   if(finPeriod==='month'){
     vFilt=ventas.filter(v=>v.fecha&&v.fecha.startsWith(ym));
     gFilt=gastos.filter(g=>g.mes===ym);
-  } else if(finPeriod==='quarter') {
+  } else if(finPeriod==='quarter'){
     const q=Math.floor(now.getMonth()/3);
-    const months=[0,1,2].map(i=>{ const m=new Date(now.getFullYear(),q*3+i,1);return m.toISOString().slice(0,7);});
-    vFilt=ventas.filter(v=>months.some(m=>v.fecha&&v.fecha.startsWith(m)));
-    gFilt=gastos.filter(g=>months.includes(g.mes));
+    const ms=[0,1,2].map(i=>new Date(now.getFullYear(),q*3+i,1).toISOString().slice(0,7));
+    vFilt=ventas.filter(v=>ms.some(m=>v.fecha&&v.fecha.startsWith(m)));
+    gFilt=gastos.filter(g=>ms.includes(g.mes));
   } else {
-    const yr=now.getFullYear().toString();
     vFilt=ventas.filter(v=>v.fecha&&v.fecha.startsWith(yr));
     gFilt=gastos.filter(g=>g.mes&&g.mes.startsWith(yr));
   }
 
-  const totalVentas=vFilt.reduce((s,v)=>s+(+v.total||0),0);
-  const totalCostos=vFilt.reduce((s,v)=>s+(+v.costo||0),0);
-  const totalGastos=gFilt.reduce((s,g)=>s+(+g.monto||0),0);
-  const utilBruta=totalVentas-totalCostos;
-  const utilNeta=utilBruta-totalGastos;
+  const totalVentas  = vFilt.reduce((s,v)=>s+(+v.total||0),0);
+  const totalCostos  = vFilt.reduce((s,v)=>s+(+v.costo||0),0);
+  const totalGastos  = gFilt.reduce((s,g)=>s+(+g.monto||0),0);
+  const utilBruta    = totalVentas-totalCostos;
+  const utilNeta     = utilBruta-totalGastos;
+  const margenBruto  = totalVentas ? (utilBruta/totalVentas*100) : 0;
+  const margenNeto   = totalVentas ? (utilNeta/totalVentas*100)  : 0;
+  const puntoEq      = margenBruto>0 ? (totalGastos/(margenBruto/100)) : 0;
+
+  // ─── Datos históricos 12 meses ───
+  const meses12  = last12Months();
+  const mesLabels = meses12.map(m=>{ const [y,mo]=m.split('-'); return new Date(+y,+mo-1,1).toLocaleDateString('es-MX',{month:'short',year:'2-digit'}); });
+  const hist     = meses12.map(m=>getMonthData(ventas,gastos,m));
+  const histVentas = hist.map(h=>h.ingresos);
+  const histUtil   = hist.map(h=>h.utilNeta);
+  const histCostos = hist.map(h=>h.costos+h.gFijos);
+
+  // ─── Proyección 6 meses (regresión simple) ───
+  const recentData = hist.slice(-6).map(h=>h.ingresos).filter(v=>v>0);
+  const avgGrowth  = recentData.length>1
+    ? recentData.slice(1).reduce((s,v,i)=>s+(v-recentData[i])/recentData[i],0)/(recentData.length-1)
+    : 0;
+  const lastVal    = recentData[recentData.length-1]||0;
+  const proyLabels=[], proyVentas=[], proyUtil=[];
+  for(let i=1;i<=6;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()+i,1);
+    proyLabels.push(d.toLocaleDateString('es-MX',{month:'short',year:'2-digit'}));
+    const pv=lastVal*Math.pow(1+(avgGrowth||0.05),i);
+    const pc=pv*(totalCostos/totalVentas||0.5);
+    const pg=totalGastos/Math.max(meses12.length,1);
+    proyVentas.push(Math.round(pv));
+    proyUtil.push(Math.round(pv-pc-pg));
+  }
+
+  // ─── P&L mensual del año ───
+  const anoMeses = Array.from({length:12},(_,i)=>`${yr}-${String(i+1).padStart(2,'0')}`);
+  const plRows   = anoMeses.map(m=>{
+    const d = getMonthData(ventas,gastos,m);
+    const mn = new Date(+yr,parseInt(m.slice(5))-1,1).toLocaleDateString('es-MX',{month:'long'});
+    return {mes:mn.charAt(0).toUpperCase()+mn.slice(1), ...d};
+  });
+  const plTotales = plRows.reduce((t,r)=>({
+    ingresos:t.ingresos+r.ingresos, costos:t.costos+r.costos,
+    utilBruta:t.utilBruta+r.utilBruta, gFijos:t.gFijos+r.gFijos, utilNeta:t.utilNeta+r.utilNeta
+  }),{ingresos:0,costos:0,utilBruta:0,gFijos:0,utilNeta:0});
 
   el.innerHTML=`
-  <div class="period-tabs">
-    <button class="filter-tab${finPeriod==='month'?' active':''}" onclick="finPeriod='month';renderFinanzas()">Mes</button>
-    <button class="filter-tab${finPeriod==='quarter'?' active':''}" onclick="finPeriod='quarter';renderFinanzas()">Trimestre</button>
-    <button class="filter-tab${finPeriod==='year'?' active':''}" onclick="finPeriod='year';renderFinanzas()">Año</button>
+  <!-- TABS + EXPORT -->
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:20px">
+    <div class="period-tabs" style="margin:0">
+      <button class="filter-tab${finPeriod==='month'?' active':''}" onclick="finPeriod='month';renderFinanzas()">Mes</button>
+      <button class="filter-tab${finPeriod==='quarter'?' active':''}" onclick="finPeriod='quarter';renderFinanzas()">Trimestre</button>
+      <button class="filter-tab${finPeriod==='year'?' active':''}" onclick="finPeriod='year';renderFinanzas()">Año</button>
+    </div>
+    <button class="btn btn-success btn-sm" onclick="exportarModeloExcel()" style="margin-left:auto">📊 Descargar Modelo Excel</button>
   </div>
-  <div class="stat-cards">
-    <div class="stat-card"><div class="stat-label">Ventas totales</div><div class="stat-value">${fmt(totalVentas)}</div></div>
-    <div class="stat-card yellow"><div class="stat-label">Costo de ventas</div><div class="stat-value">${fmt(totalCostos)}</div></div>
+
+  <!-- KPIs -->
+  <div class="stat-cards" style="grid-template-columns:repeat(2,1fr)">
+    <div class="stat-card"><div class="stat-label">Ingresos</div><div class="stat-value">${fmt(totalVentas)}</div><div class="stat-sub">Margen bruto ${margenBruto.toFixed(1)}%</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Costos totales</div><div class="stat-value">${fmt(totalCostos+totalGastos)}</div><div class="stat-sub">CV ${fmt(totalCostos)} + GF ${fmt(totalGastos)}</div></div>
     <div class="stat-card green"><div class="stat-label">Utilidad bruta</div><div class="stat-value">${fmt(utilBruta)}</div></div>
-    <div class="stat-card${utilNeta>=0?' green':' red'}"><div class="stat-label">Utilidad neta</div><div class="stat-value">${fmt(utilNeta)}</div></div>
+    <div class="stat-card${utilNeta>=0?' green':' red'}"><div class="stat-label">Utilidad neta</div><div class="stat-value">${fmt(utilNeta)}</div><div class="stat-sub">Margen neto ${margenNeto.toFixed(1)}%</div></div>
   </div>
+
+  <!-- PUNTO DE EQUILIBRIO -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><span class="card-title">📍 Punto de Equilibrio</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:center">
+      <div><div style="font-size:11px;color:var(--gray-400);font-weight:700;text-transform:uppercase">Gastos Fijos</div><div style="font-size:18px;font-weight:700">${fmt(totalGastos)}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-400);font-weight:700;text-transform:uppercase">Margen Bruto</div><div style="font-size:18px;font-weight:700">${margenBruto.toFixed(1)}%</div></div>
+      <div><div style="font-size:11px;color:var(--blue);font-weight:700;text-transform:uppercase">Debes vender</div><div style="font-size:18px;font-weight:700;color:var(--blue)">${puntoEq>0?fmt(puntoEq):'N/D'}</div></div>
+    </div>
+    ${totalVentas>0?`<div style="margin-top:12px;background:var(--gray-100);border-radius:8px;height:12px;overflow:hidden"><div style="background:${totalVentas>=puntoEq?'var(--green)':'var(--yellow)'};height:100%;width:${Math.min(100,puntoEq>0?totalVentas/puntoEq*100:0).toFixed(1)}%;transition:width .5s"></div></div>
+    <div style="font-size:11px;color:var(--gray-400);margin-top:4px">${puntoEq>0?(totalVentas/puntoEq*100).toFixed(1)+'% del punto de equilibrio alcanzado':''}</div>`:''}
+  </div>
+
+  <!-- GRÁFICAS -->
   <div style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px">
-    <div class="card"><div class="card-header"><span class="card-title">Ventas vs Costos vs Gastos</span></div>
-      <div class="chart-container"><canvas id="finChart1"></canvas></div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">Histórico 12 meses</span></div>
+      <div class="chart-container" style="height:240px"><canvas id="finChart1"></canvas></div>
     </div>
-    <div class="card"><div class="card-header"><span class="card-title">Distribución</span></div>
-      <div class="chart-container"><canvas id="finChart2"></canvas></div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">Proyección 6 meses</span><span class="badge badge-blue">Estimado</span></div>
+      <div class="chart-container" style="height:200px"><canvas id="finChart3"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">Distribución de costos</span></div>
+      <div class="chart-container" style="height:200px"><canvas id="finChart2"></canvas></div>
     </div>
   </div>
-  <div class="card">
-    <div class="card-header"><span class="card-title">Punto de equilibrio</span></div>
-    <p style="font-size:13px;color:var(--gray-600)">Gastos fijos: <strong>${fmt(totalGastos)}</strong> · Margen bruto: <strong>${totalVentas?((utilBruta/totalVentas)*100).toFixed(1):'0'}%</strong></p>
-    ${totalVentas&&utilBruta>0?`<p style="font-size:14px;font-weight:700;color:var(--blue);margin-top:8px">Necesitas vender ${fmt(totalGastos/(utilBruta/totalVentas))} para cubrir gastos</p>`:'<p style="color:var(--gray-400)">Sin datos suficientes</p>'}
-  </div>
-  <div class="card">
-    <div class="card-header"><span class="card-title">Margen por Producto</span></div>
+
+  <!-- P&L MENSUAL -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><span class="card-title">Estado de Resultados ${yr}</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Producto</th><th>Costo</th><th>Precio</th><th>Margen %</th><th>Uds. vendidas</th></tr></thead>
+      <thead><tr><th>Mes</th><th>Ingresos</th><th>Costo Vta.</th><th>Util. Bruta</th><th>Gastos Fijos</th><th>Util. Neta</th><th>Margen</th></tr></thead>
+      <tbody>
+        ${plRows.map(r=>`<tr>
+          <td style="font-weight:600">${r.mes}</td>
+          <td>${r.ingresos?fmt(r.ingresos):'-'}</td>
+          <td>${r.costos?fmt(r.costos):'-'}</td>
+          <td style="color:${r.utilBruta>=0?'var(--green)':'var(--red)'}">${r.utilBruta?fmt(r.utilBruta):'-'}</td>
+          <td>${r.gFijos?fmt(r.gFijos):'-'}</td>
+          <td style="font-weight:700;color:${r.utilNeta>=0?'var(--green)':'var(--red)'}">${r.utilNeta?fmt(r.utilNeta):'-'}</td>
+          <td>${r.ingresos?((r.utilNeta/r.ingresos)*100).toFixed(1)+'%':'-'}</td>
+        </tr>`).join('')}
+        <tr style="background:var(--gray-50);font-weight:700;border-top:2px solid var(--gray-200)">
+          <td>TOTAL</td>
+          <td>${fmt(plTotales.ingresos)}</td>
+          <td>${fmt(plTotales.costos)}</td>
+          <td style="color:${plTotales.utilBruta>=0?'var(--green)':'var(--red)'}">${fmt(plTotales.utilBruta)}</td>
+          <td>${fmt(plTotales.gFijos)}</td>
+          <td style="color:${plTotales.utilNeta>=0?'var(--green)':'var(--red)'}">${fmt(plTotales.utilNeta)}</td>
+          <td>${plTotales.ingresos?((plTotales.utilNeta/plTotales.ingresos)*100).toFixed(1)+'%':'-'}</td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <!-- MARGEN POR PRODUCTO -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Top Productos por Margen</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Producto</th><th>Costo</th><th>Precio</th><th>Margen %</th><th>Uds. vendidas</th><th>Ingreso total</th></tr></thead>
       <tbody>${getMarginTable()}</tbody>
     </table></div>
   </div>`;
 
+  // Renderizar gráficas
   setTimeout(()=>{
+    // Chart 1: Histórico
     const ctx1=document.getElementById('finChart1');
     if(ctx1){
       if(finChart1) finChart1.destroy();
       finChart1=new Chart(ctx1,{type:'bar',data:{
-        labels:['Ventas','Costos','Gastos','Utilidad Neta'],
-        datasets:[{data:[totalVentas,totalCostos,totalGastos,Math.max(0,utilNeta)],backgroundColor:['#1a4fa0','#f59e0b','#ef4444','#22c55e']}]
-      },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+        labels:mesLabels,
+        datasets:[
+          {label:'Ingresos',data:histVentas,backgroundColor:'rgba(26,79,160,0.7)',borderRadius:4},
+          {label:'Costos totales',data:histCostos,backgroundColor:'rgba(245,158,11,0.7)',borderRadius:4},
+          {label:'Utilidad neta',data:histUtil,type:'line',borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,0.1)',tension:0.4,fill:true,pointRadius:3}
+        ]
+      },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{y:{beginAtZero:true,ticks:{callback:v=>'$'+v.toLocaleString()}}}}});
     }
+    // Chart 2: Dona
     const ctx2=document.getElementById('finChart2');
     if(ctx2){
       if(finChart2) finChart2.destroy();
       finChart2=new Chart(ctx2,{type:'doughnut',data:{
-        labels:['Costos','Gastos','Utilidad'],
-        datasets:[{data:[totalCostos,totalGastos,Math.max(0,utilNeta)],backgroundColor:['#f59e0b','#ef4444','#22c55e']}]
-      },options:{responsive:true,maintainAspectRatio:false}});
+        labels:['Costo de ventas','Gastos fijos','Utilidad neta'],
+        datasets:[{data:[Math.max(0,totalCostos),Math.max(0,totalGastos),Math.max(0,utilNeta)],backgroundColor:['#f59e0b','#ef4444','#22c55e'],borderWidth:2}]
+      },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}}}});
     }
-  },100);
+    // Chart 3: Proyección
+    const ctx3=document.getElementById('finChart3');
+    if(ctx3){
+      if(finChart3) finChart3.destroy();
+      finChart3=new Chart(ctx3,{type:'line',data:{
+        labels:proyLabels,
+        datasets:[
+          {label:'Ingresos estimados',data:proyVentas,borderColor:'#1a4fa0',backgroundColor:'rgba(26,79,160,0.08)',tension:0.4,fill:true,borderDash:[6,3]},
+          {label:'Utilidad estimada',data:proyUtil,borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,0.08)',tension:0.4,fill:true,borderDash:[6,3]}
+        ]
+      },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{y:{beginAtZero:true,ticks:{callback:v=>'$'+v.toLocaleString()}}}}});
+    }
+  },150);
 }
 
 function getMarginTable() {
@@ -2628,12 +2771,82 @@ function getMarginTable() {
   const prods=LS.get('ej_inventario')||[];
   const map={};
   ventas.forEach(v=>{if(v.productoId){map[v.productoId]=(map[v.productoId]||0)+(+v.cantidad||1);}});
-  return Object.entries(map).slice(0,20).map(([id,qty])=>{
+  return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([id,qty])=>{
     const p=prods.find(x=>x.id===id);
     if(!p)return '';
     const margin=p.salePrice?((p.salePrice-p.costPrice)/p.salePrice*100):0;
-    return `<tr><td>${p.name}</td><td>${fmt(p.costPrice)}</td><td>${fmt(p.salePrice)}</td><td>${margin.toFixed(1)}%</td><td>${qty}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400)">Sin datos</td></tr>';
+    const ingTotal=qty*p.salePrice;
+    return `<tr><td>${p.name}</td><td>${fmt(p.costPrice)}</td><td>${fmt(p.salePrice)}</td><td><span class="badge ${margin>=30?'badge-green':margin>=15?'badge-yellow':'badge-red'}">${margin.toFixed(1)}%</span></td><td>${qty}</td><td style="font-weight:600">${fmt(ingTotal)}</td></tr>`;
+  }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--gray-400)">Sin datos de ventas aún</td></tr>';
+}
+
+// ═══ EXPORTAR MODELO FINANCIERO A EXCEL ═══
+function exportarModeloExcel() {
+  const ventas  = LS.get('ej_ventas')||[];
+  const gastos  = LS.get('ej_gastos')||[];
+  const prods   = LS.get('ej_inventario')||[];
+  const clientes= LS.get('ej_clientes')||[];
+  const yr      = new Date().getFullYear().toString();
+  const wb      = XLSX.utils.book_new();
+
+  // ── Hoja 1: P&L mensual ──
+  const anoMeses = Array.from({length:12},(_,i)=>`${yr}-${String(i+1).padStart(2,'0')}`);
+  const plData   = [['Mes','Ingresos','Costo de Ventas','Utilidad Bruta','Gastos Fijos','Utilidad Neta','Margen %']];
+  let plTot      = {ing:0,cv:0,ub:0,gf:0,un:0};
+  anoMeses.forEach(m=>{
+    const d=getMonthData(ventas,gastos,m);
+    const mn=new Date(+yr,parseInt(m.slice(5))-1,1).toLocaleDateString('es-MX',{month:'long'});
+    plData.push([mn.charAt(0).toUpperCase()+mn.slice(1),d.ingresos,d.costos,d.utilBruta,d.gFijos,d.utilNeta,d.ingresos?(d.utilNeta/d.ingresos*100).toFixed(1)+'%':'0%']);
+    plTot.ing+=d.ingresos;plTot.cv+=d.costos;plTot.ub+=d.utilBruta;plTot.gf+=d.gFijos;plTot.un+=d.utilNeta;
+  });
+  plData.push(['TOTAL ANUAL',plTot.ing,plTot.cv,plTot.ub,plTot.gf,plTot.un,plTot.ing?(plTot.un/plTot.ing*100).toFixed(1)+'%':'0%']);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(plData), 'P&L Estado de Resultados');
+
+  // ── Hoja 2: Proyección 6 meses ──
+  const now=new Date();
+  const recent=last12Months().slice(-6).map(m=>getMonthData(ventas,gastos,m).ingresos).filter(v=>v>0);
+  const avgG=recent.length>1?recent.slice(1).reduce((s,v,i)=>s+(v-recent[i])/recent[i],0)/(recent.length-1):0.05;
+  const lastV=recent[recent.length-1]||0;
+  const proyData=[['Mes','Ingresos Estimados','Costo Estimado','Gastos Fijos Prom.','Utilidad Estimada','Margen Est.']];
+  const avgGF=gastos.filter(g=>g.mes&&g.mes.startsWith(yr)).reduce((s,g)=>s+(+g.monto||0),0)/12||0;
+  const cvRatio=ventas.length?ventas.reduce((s,v)=>s+(+v.costo||0),0)/ventas.reduce((s,v)=>s+(+v.total||0),0):0.5;
+  for(let i=1;i<=6;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()+i,1);
+    const mn=d.toLocaleDateString('es-MX',{month:'long',year:'numeric'});
+    const pv=Math.round(lastV*Math.pow(1+avgG,i));
+    const pc=Math.round(pv*cvRatio);
+    const pu=pv-pc-Math.round(avgGF);
+    proyData.push([mn,pv,pc,Math.round(avgGF),pu,pv?(pu/pv*100).toFixed(1)+'%':'0%']);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(proyData), 'Proyección 6 Meses');
+
+  // ── Hoja 3: Inventario valorizado ──
+  const invData=[['Código','Producto','Stock','Costo Unit.','Precio Venta','Valor Inventario','Margen %','Ubicación']];
+  prods.forEach(p=>{
+    const mg=p.salePrice?((p.salePrice-p.costPrice)/p.salePrice*100):0;
+    invData.push([p.code,p.name,p.stock,p.costPrice,p.salePrice,p.stock*p.costPrice,mg.toFixed(1)+'%',p.location]);
+  });
+  const totalInv=prods.reduce((s,p)=>s+p.stock*p.costPrice,0);
+  invData.push(['','','','','TOTAL INVENTARIO',totalInv,'','']);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invData), 'Inventario Valorizado');
+
+  // ── Hoja 4: Historial de ventas ──
+  const vData=[['Folio','Fecha','Descripción','Costo','Venta','Utilidad','Empleado']];
+  ventas.slice().reverse().forEach(v=>vData.push([v.folio,v.fecha,v.desc,v.costo||0,v.total||0,(v.total||0)-(v.costo||0),v.empleado||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(vData), 'Historial Ventas');
+
+  // ── Hoja 5: Gastos fijos ──
+  const gData=[['Concepto','Monto','Mes','Notas']];
+  gastos.forEach(g=>gData.push([g.concepto,g.monto,g.mes,g.notas||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(gData), 'Gastos Fijos');
+
+  // ── Hoja 6: Clientes ──
+  const cData=[['Nombre','Teléfono','Correo','Dirección']];
+  clientes.forEach(c=>cData.push([c.nombre,c.tel||'',c.email||'',c.dir||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cData), 'Clientes');
+
+  XLSX.writeFile(wb, `EJ-Autopartes-Modelo-Financiero-${yr}.xlsx`);
+  toast('Modelo Excel descargado');
 }
 
 
