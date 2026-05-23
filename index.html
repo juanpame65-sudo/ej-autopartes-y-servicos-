@@ -244,7 +244,7 @@ tr:hover td{background:var(--gray-50)}
 
 <!-- SECTIONS -->
 <div id="sec-dashboard" class="section">
-  <div class="section-title">Dashboard</div>
+  <div class="section-title">Flujo de Efectivo</div>
   <div class="section-sub">Resumen del negocio</div>
   <div class="period-tabs" id="dashPeriodTabs">
     <button class="filter-tab active" onclick="setDashPeriod('today',this)">Hoy</button>
@@ -382,6 +382,18 @@ tr:hover td{background:var(--gray-50)}
   <div id="gastosContent"></div>
 </div>
 
+<div id="sec-compras" class="section">
+  <div class="section-title">Compras</div>
+  <div class="section-sub">Registro de compras de inventario</div>
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="openCompraModal()">+ Nueva Compra</button>
+    <input class="search-input" style="flex:1;min-width:160px" placeholder="Buscar proveedor o producto..." id="compraSearch" oninput="renderCompras()"/>
+    <input type="month" class="form-control" id="compraMonthFilter" style="width:160px" onchange="renderCompras()"/>
+  </div>
+  <div id="comprasResumen" style="margin-bottom:12px"></div>
+  <div id="comprasContent"></div>
+</div>
+
 <div id="sec-devoluciones" class="section">
   <div class="section-title">Devoluciones y Garant&iacute;as</div>
   <div class="section-sub">Registro de devoluciones</div>
@@ -428,7 +440,7 @@ tr:hover td{background:var(--gray-50)}
 <!-- BOTTOM NAV -->
 <div id="bottomNav" style="display:none">
   <button class="bnav-item" onclick="navigate('dashboard')" data-sec="dashboard">
-    <span class="bi">&#128200;</span><span>Dashboard</span>
+    <span class="bi">&#128200;</span><span>Flujo</span>
   </button>
   <button class="bnav-item" onclick="navigate('ventas')" data-sec="ventas">
     <span class="bi">&#128179;</span><span>Ventas</span>
@@ -731,6 +743,40 @@ tr:hover td{background:var(--gray-50)}
   </div>
 </div></div>
 
+<!-- COMPRA MODAL -->
+<div id="compraModalOv" class="modal-overlay" style="display:none" onclick="closeModal('compraModalOv',event)">
+<div class="modal" onclick="event.stopPropagation()" style="max-width:520px">
+  <div class="modal-header">
+    <span class="modal-title">🛒 Nueva Compra de Inventario</span>
+    <button class="close-btn" onclick="closeModal('compraModalOv')">&times;</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Fecha *</label><input class="form-control" type="date" id="cmpFecha"/></div>
+      <div class="form-group"><label class="form-label">Proveedor *</label><input class="form-control" id="cmpProveedor" placeholder="Nombre del proveedor"/></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Producto del Catálogo</label>
+        <select class="form-control" id="cmpProductoSel" onchange="cmpOnProductSelect()">
+          <option value="">-- Seleccionar producto del inventario --</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">O escribir nombre del producto</label>
+        <input class="form-control" id="cmpProductoNombre" placeholder="Nombre del producto (si no está en catálogo)"/>
+      </div>
+      <div class="form-group"><label class="form-label">Cantidad *</label><input class="form-control" type="number" id="cmpCantidad" min="1" value="1" oninput="cmpCalcTotal()"/></div>
+      <div class="form-group"><label class="form-label">Costo Unitario ($) *</label><input class="form-control" type="number" id="cmpCostoUnit" step="0.01" placeholder="0.00" oninput="cmpCalcTotal()"/></div>
+      <div class="form-group"><label class="form-label">Total ($)</label><input class="form-control" type="number" id="cmpTotal" step="0.01" placeholder="Calculado automáticamente"/></div>
+      <div class="form-group"><label class="form-label">Notas</label><input class="form-control" id="cmpNotas" placeholder="Número de factura, lote, etc."/></div>
+    </div>
+    <div style="background:rgba(26,79,160,0.08);border-radius:8px;padding:10px;font-size:12px;color:var(--blue);margin-top:4px">
+      💡 Si seleccionas un producto del catálogo, su stock se actualizará automáticamente.
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal('compraModalOv')">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveCompra()">Registrar Compra</button>
+  </div>
+</div></div>
+
 <!-- DEVOLUCION MODAL -->
 <div id="devModalOv" class="modal-overlay" style="display:none" onclick="closeModal('devModalOv',event)">
 <div class="modal" onclick="event.stopPropagation()">
@@ -834,7 +880,7 @@ const GASTOS_PREDETERMINADOS = [
 ];
 
 const SECTIONS_CONFIG = [
-  {id:'dashboard',  label:'Dashboard',       icon:'📊', group:'main'},
+  {id:'dashboard',  label:'Flujo de Efectivo',icon:'📊', group:'main'},
   {id:'ventas',     label:'Ventas',           icon:'💰', group:'main'},
   {id:'inventario', label:'Inventario',       icon:'📦', group:'main'},
   {id:'ordenes',    label:'Órdenes Servicio', icon:'🔧', group:'main'},
@@ -844,6 +890,7 @@ const SECTIONS_CONFIG = [
   {id:'servicios',  label:'Catálogo Servicios',icon:'⚙️',group:'ops'},
   {id:'finanzas',   label:'Finanzas',         icon:'📈', group:'fin', restricted:true},
   {id:'gastos',     label:'Gastos Fijos',     icon:'🏷️', group:'fin', restricted:true},
+  {id:'compras',    label:'Compras',          icon:'🛒', group:'fin'},
   {id:'devoluciones',label:'Devoluciones',    icon:'↩️', group:'fin'},
   {id:'reportes',   label:'Reportes',         icon:'📑', group:'fin', restricted:true},
   {id:'corte',      label:'Corte de Caja',    icon:'🏦', group:'fin', restricted:true},
@@ -892,6 +939,7 @@ function initData() {
   LS.def('ej_clientes', []);
   LS.def('ej_citas', []);
   LS.def('ej_gastos', []);
+  LS.def('ej_compras', []);
   LS.def('ej_devoluciones', []);
   LS.def('ej_servicios', DEFAULT_SERVICES);
   LS.def('ej_permisos', { lucila:{finanzas:true,gastos:true,reportes:true,corte:true}, anita:{finanzas:true,gastos:true,reportes:true,corte:true} });
@@ -1050,6 +1098,7 @@ function renderSection(sec) {
     case 'agenda': renderAgenda(); break;
     case 'finanzas': renderFinanzas(); break;
     case 'gastos': renderGastos(); break;
+    case 'compras': renderCompras(); break;
     case 'devoluciones': renderDevoluciones(); break;
     case 'reportes': renderReportes(); break;
     case 'corte': renderCorte(); break;
@@ -2553,13 +2602,16 @@ function delCita(id) {
 // FINANZAS
 // ═══════════════════════════════════════
 // ═══ HELPERS FINANCIEROS ═══
-function getMonthData(ventas, gastos, ym) {
+function getMonthData(ventas, gastos, ym, compras) {
+  const _compras = compras || (LS.get('ej_compras')||[]);
   const v = ventas.filter(x=>x.fecha&&x.fecha.startsWith(ym));
   const g = gastos.filter(x=>x.mes===ym);
-  const ingresos = v.reduce((s,x)=>s+(+x.total||0),0);
-  const costos   = v.reduce((s,x)=>s+(+x.costo||0),0);
-  const gFijos   = g.reduce((s,x)=>s+(+x.monto||0),0);
-  return { ingresos, costos, utilBruta: ingresos-costos, gFijos, utilNeta: ingresos-costos-gFijos };
+  const c = _compras.filter(x=>x.fecha&&x.fecha.startsWith(ym));
+  const ingresos   = v.reduce((s,x)=>s+(+x.total||0),0);
+  const costos     = v.reduce((s,x)=>s+(+x.costo||0),0);
+  const gFijos     = g.reduce((s,x)=>s+(+x.monto||0),0);
+  const comprasTotal = c.reduce((s,x)=>s+(+x.total||0),0);
+  return { ingresos, costos, utilBruta: ingresos-costos, gFijos, comprasTotal, utilNeta: ingresos-costos-gFijos-comprasTotal };
 }
 
 function last12Months() {
@@ -2578,41 +2630,46 @@ function renderFinanzas() {
   const el=document.getElementById('finanzasContent');
   const ventas=LS.get('ej_ventas')||[];
   const gastos=LS.get('ej_gastos')||[];
+  const compras=LS.get('ej_compras')||[];
   const now=new Date();
   const ym=now.toISOString().slice(0,7);
   const yr=now.getFullYear().toString();
 
   // ─── Filtrar por período seleccionado ───
-  let vFilt=ventas, gFilt=gastos;
+  let vFilt=ventas, gFilt=gastos, cFilt=compras;
   if(finPeriod==='month'){
     vFilt=ventas.filter(v=>v.fecha&&v.fecha.startsWith(ym));
     gFilt=gastos.filter(g=>g.mes===ym);
+    cFilt=compras.filter(c=>c.fecha&&c.fecha.startsWith(ym));
   } else if(finPeriod==='quarter'){
     const q=Math.floor(now.getMonth()/3);
     const ms=[0,1,2].map(i=>new Date(now.getFullYear(),q*3+i,1).toISOString().slice(0,7));
     vFilt=ventas.filter(v=>ms.some(m=>v.fecha&&v.fecha.startsWith(m)));
     gFilt=gastos.filter(g=>ms.includes(g.mes));
+    cFilt=compras.filter(c=>ms.some(m=>c.fecha&&c.fecha.startsWith(m)));
   } else {
     vFilt=ventas.filter(v=>v.fecha&&v.fecha.startsWith(yr));
     gFilt=gastos.filter(g=>g.mes&&g.mes.startsWith(yr));
+    cFilt=compras.filter(c=>c.fecha&&c.fecha.startsWith(yr));
   }
 
-  const totalVentas  = vFilt.reduce((s,v)=>s+(+v.total||0),0);
-  const totalCostos  = vFilt.reduce((s,v)=>s+(+v.costo||0),0);
-  const totalGastos  = gFilt.reduce((s,g)=>s+(+g.monto||0),0);
-  const utilBruta    = totalVentas-totalCostos;
-  const utilNeta     = utilBruta-totalGastos;
-  const margenBruto  = totalVentas ? (utilBruta/totalVentas*100) : 0;
-  const margenNeto   = totalVentas ? (utilNeta/totalVentas*100)  : 0;
-  const puntoEq      = margenBruto>0 ? (totalGastos/(margenBruto/100)) : 0;
+  const totalVentas   = vFilt.reduce((s,v)=>s+(+v.total||0),0);
+  const totalCostos   = vFilt.reduce((s,v)=>s+(+v.costo||0),0);
+  const totalGastos   = gFilt.reduce((s,g)=>s+(+g.monto||0),0);
+  const totalCompras  = cFilt.reduce((s,c)=>s+(+c.total||0),0);
+  const utilBruta     = totalVentas-totalCostos;
+  const utilNeta      = utilBruta-totalGastos-totalCompras;
+  const margenBruto   = totalVentas ? (utilBruta/totalVentas*100) : 0;
+  const margenNeto    = totalVentas ? (utilNeta/totalVentas*100)  : 0;
+  const puntoEq       = margenBruto>0 ? ((totalGastos+totalCompras)/(margenBruto/100)) : 0;
 
   // ─── Datos históricos 12 meses ───
   const meses12  = last12Months();
   const mesLabels = meses12.map(m=>{ const [y,mo]=m.split('-'); return new Date(+y,+mo-1,1).toLocaleDateString('es-MX',{month:'short',year:'2-digit'}); });
-  const hist     = meses12.map(m=>getMonthData(ventas,gastos,m));
+  const hist     = meses12.map(m=>getMonthData(ventas,gastos,m,compras));
   const histVentas = hist.map(h=>h.ingresos);
   const histUtil   = hist.map(h=>h.utilNeta);
-  const histCostos = hist.map(h=>h.costos+h.gFijos);
+  const histCostos = hist.map(h=>h.costos+h.gFijos+(h.comprasTotal||0));
 
   // ─── Proyección 6 meses (regresión simple) ───
   const recentData = hist.slice(-6).map(h=>h.ingresos).filter(v=>v>0);
@@ -2634,14 +2691,15 @@ function renderFinanzas() {
   // ─── P&L mensual del año ───
   const anoMeses = Array.from({length:12},(_,i)=>`${yr}-${String(i+1).padStart(2,'0')}`);
   const plRows   = anoMeses.map(m=>{
-    const d = getMonthData(ventas,gastos,m);
+    const d = getMonthData(ventas,gastos,m,compras);
     const mn = new Date(+yr,parseInt(m.slice(5))-1,1).toLocaleDateString('es-MX',{month:'long'});
     return {mes:mn.charAt(0).toUpperCase()+mn.slice(1), ...d};
   });
   const plTotales = plRows.reduce((t,r)=>({
     ingresos:t.ingresos+r.ingresos, costos:t.costos+r.costos,
-    utilBruta:t.utilBruta+r.utilBruta, gFijos:t.gFijos+r.gFijos, utilNeta:t.utilNeta+r.utilNeta
-  }),{ingresos:0,costos:0,utilBruta:0,gFijos:0,utilNeta:0});
+    utilBruta:t.utilBruta+r.utilBruta, gFijos:t.gFijos+r.gFijos,
+    comprasTotal:t.comprasTotal+(r.comprasTotal||0), utilNeta:t.utilNeta+r.utilNeta
+  }),{ingresos:0,costos:0,utilBruta:0,gFijos:0,comprasTotal:0,utilNeta:0});
 
   el.innerHTML=`
   <!-- TABS + EXPORT -->
@@ -2657,16 +2715,17 @@ function renderFinanzas() {
   <!-- KPIs -->
   <div class="stat-cards" style="grid-template-columns:repeat(2,1fr)">
     <div class="stat-card"><div class="stat-label">Ingresos</div><div class="stat-value">${fmt(totalVentas)}</div><div class="stat-sub">Margen bruto ${margenBruto.toFixed(1)}%</div></div>
-    <div class="stat-card yellow"><div class="stat-label">Costos totales</div><div class="stat-value">${fmt(totalCostos+totalGastos)}</div><div class="stat-sub">CV ${fmt(totalCostos)} + GF ${fmt(totalGastos)}</div></div>
-    <div class="stat-card green"><div class="stat-label">Utilidad bruta</div><div class="stat-value">${fmt(utilBruta)}</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Costos totales</div><div class="stat-value">${fmt(totalCostos+totalGastos+totalCompras)}</div><div class="stat-sub">CV ${fmt(totalCostos)} + GF ${fmt(totalGastos)} + Compras ${fmt(totalCompras)}</div></div>
+    <div class="stat-card green"><div class="stat-label">Utilidad bruta</div><div class="stat-value">${fmt(utilBruta)}</div><div class="stat-sub">Compras inventario: ${fmt(totalCompras)}</div></div>
     <div class="stat-card${utilNeta>=0?' green':' red'}"><div class="stat-label">Utilidad neta</div><div class="stat-value">${fmt(utilNeta)}</div><div class="stat-sub">Margen neto ${margenNeto.toFixed(1)}%</div></div>
   </div>
 
   <!-- PUNTO DE EQUILIBRIO -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-header"><span class="card-title">📍 Punto de Equilibrio</span></div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:center">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
       <div><div style="font-size:11px;color:var(--gray-400);font-weight:700;text-transform:uppercase">Gastos Fijos</div><div style="font-size:18px;font-weight:700">${fmt(totalGastos)}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-400);font-weight:700;text-transform:uppercase">Compras</div><div style="font-size:18px;font-weight:700">${fmt(totalCompras)}</div></div>
       <div><div style="font-size:11px;color:var(--gray-400);font-weight:700;text-transform:uppercase">Margen Bruto</div><div style="font-size:18px;font-weight:700">${margenBruto.toFixed(1)}%</div></div>
       <div><div style="font-size:11px;color:var(--blue);font-weight:700;text-transform:uppercase">Debes vender</div><div style="font-size:18px;font-weight:700;color:var(--blue)">${puntoEq>0?fmt(puntoEq):'N/D'}</div></div>
     </div>
@@ -2694,7 +2753,7 @@ function renderFinanzas() {
   <div class="card" style="margin-bottom:16px">
     <div class="card-header"><span class="card-title">Estado de Resultados ${yr}</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Mes</th><th>Ingresos</th><th>Costo Vta.</th><th>Util. Bruta</th><th>Gastos Fijos</th><th>Util. Neta</th><th>Margen</th></tr></thead>
+      <thead><tr><th>Mes</th><th>Ingresos</th><th>Costo Vta.</th><th>Util. Bruta</th><th>Gastos Fijos</th><th>Compras</th><th>Util. Neta</th><th>Margen</th></tr></thead>
       <tbody>
         ${plRows.map(r=>`<tr>
           <td style="font-weight:600">${r.mes}</td>
@@ -2702,6 +2761,7 @@ function renderFinanzas() {
           <td>${r.costos?fmt(r.costos):'-'}</td>
           <td style="color:${r.utilBruta>=0?'var(--green)':'var(--red)'}">${r.utilBruta?fmt(r.utilBruta):'-'}</td>
           <td>${r.gFijos?fmt(r.gFijos):'-'}</td>
+          <td style="color:var(--yellow)">${r.comprasTotal?fmt(r.comprasTotal):'-'}</td>
           <td style="font-weight:700;color:${r.utilNeta>=0?'var(--green)':'var(--red)'}">${r.utilNeta?fmt(r.utilNeta):'-'}</td>
           <td>${r.ingresos?((r.utilNeta/r.ingresos)*100).toFixed(1)+'%':'-'}</td>
         </tr>`).join('')}
@@ -2711,6 +2771,7 @@ function renderFinanzas() {
           <td>${fmt(plTotales.costos)}</td>
           <td style="color:${plTotales.utilBruta>=0?'var(--green)':'var(--red)'}">${fmt(plTotales.utilBruta)}</td>
           <td>${fmt(plTotales.gFijos)}</td>
+          <td style="color:var(--yellow)">${fmt(plTotales.comprasTotal||0)}</td>
           <td style="color:${plTotales.utilNeta>=0?'var(--green)':'var(--red)'}">${fmt(plTotales.utilNeta)}</td>
           <td>${plTotales.ingresos?((plTotales.utilNeta/plTotales.ingresos)*100).toFixed(1)+'%':'-'}</td>
         </tr>
@@ -2747,8 +2808,8 @@ function renderFinanzas() {
     if(ctx2){
       if(finChart2) finChart2.destroy();
       finChart2=new Chart(ctx2,{type:'doughnut',data:{
-        labels:['Costo de ventas','Gastos fijos','Utilidad neta'],
-        datasets:[{data:[Math.max(0,totalCostos),Math.max(0,totalGastos),Math.max(0,utilNeta)],backgroundColor:['#f59e0b','#ef4444','#22c55e'],borderWidth:2}]
+        labels:['Costo de ventas','Gastos fijos','Compras inventario','Utilidad neta'],
+        datasets:[{data:[Math.max(0,totalCostos),Math.max(0,totalGastos),Math.max(0,totalCompras),Math.max(0,utilNeta)],backgroundColor:['#f59e0b','#ef4444','#8b5cf6','#22c55e'],borderWidth:2}]
       },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}}}});
     }
     // Chart 3: Proyección
@@ -2784,6 +2845,7 @@ function getMarginTable() {
 function exportarModeloExcel() {
   const ventas  = LS.get('ej_ventas')||[];
   const gastos  = LS.get('ej_gastos')||[];
+  const compras = LS.get('ej_compras')||[];
   const prods   = LS.get('ej_inventario')||[];
   const clientes= LS.get('ej_clientes')||[];
   const yr      = new Date().getFullYear().toString();
@@ -2791,20 +2853,20 @@ function exportarModeloExcel() {
 
   // ── Hoja 1: P&L mensual ──
   const anoMeses = Array.from({length:12},(_,i)=>`${yr}-${String(i+1).padStart(2,'0')}`);
-  const plData   = [['Mes','Ingresos','Costo de Ventas','Utilidad Bruta','Gastos Fijos','Utilidad Neta','Margen %']];
-  let plTot      = {ing:0,cv:0,ub:0,gf:0,un:0};
+  const plData   = [['Mes','Ingresos','Costo de Ventas','Utilidad Bruta','Gastos Fijos','Compras Inventario','Utilidad Neta','Margen %']];
+  let plTot      = {ing:0,cv:0,ub:0,gf:0,cp:0,un:0};
   anoMeses.forEach(m=>{
-    const d=getMonthData(ventas,gastos,m);
+    const d=getMonthData(ventas,gastos,m,compras);
     const mn=new Date(+yr,parseInt(m.slice(5))-1,1).toLocaleDateString('es-MX',{month:'long'});
-    plData.push([mn.charAt(0).toUpperCase()+mn.slice(1),d.ingresos,d.costos,d.utilBruta,d.gFijos,d.utilNeta,d.ingresos?(d.utilNeta/d.ingresos*100).toFixed(1)+'%':'0%']);
-    plTot.ing+=d.ingresos;plTot.cv+=d.costos;plTot.ub+=d.utilBruta;plTot.gf+=d.gFijos;plTot.un+=d.utilNeta;
+    plData.push([mn.charAt(0).toUpperCase()+mn.slice(1),d.ingresos,d.costos,d.utilBruta,d.gFijos,d.comprasTotal||0,d.utilNeta,d.ingresos?(d.utilNeta/d.ingresos*100).toFixed(1)+'%':'0%']);
+    plTot.ing+=d.ingresos;plTot.cv+=d.costos;plTot.ub+=d.utilBruta;plTot.gf+=d.gFijos;plTot.cp+=(d.comprasTotal||0);plTot.un+=d.utilNeta;
   });
-  plData.push(['TOTAL ANUAL',plTot.ing,plTot.cv,plTot.ub,plTot.gf,plTot.un,plTot.ing?(plTot.un/plTot.ing*100).toFixed(1)+'%':'0%']);
+  plData.push(['TOTAL ANUAL',plTot.ing,plTot.cv,plTot.ub,plTot.gf,plTot.cp,plTot.un,plTot.ing?(plTot.un/plTot.ing*100).toFixed(1)+'%':'0%']);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(plData), 'P&L Estado de Resultados');
 
   // ── Hoja 2: Proyección 6 meses ──
   const now=new Date();
-  const recent=last12Months().slice(-6).map(m=>getMonthData(ventas,gastos,m).ingresos).filter(v=>v>0);
+  const recent=last12Months().slice(-6).map(m=>getMonthData(ventas,gastos,m,compras).ingresos).filter(v=>v>0);
   const avgG=recent.length>1?recent.slice(1).reduce((s,v,i)=>s+(v-recent[i])/recent[i],0)/(recent.length-1):0.05;
   const lastV=recent[recent.length-1]||0;
   const proyData=[['Mes','Ingresos Estimados','Costo Estimado','Gastos Fijos Prom.','Utilidad Estimada','Margen Est.']];
@@ -2840,7 +2902,12 @@ function exportarModeloExcel() {
   gastos.forEach(g=>gData.push([g.concepto,g.monto,g.mes,g.notas||'']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(gData), 'Gastos Fijos');
 
-  // ── Hoja 6: Clientes ──
+  // ── Hoja 6: Compras ──
+  const cpData=[['Fecha','Proveedor','Producto','Cantidad','Costo Unitario','Total','Notas']];
+  compras.forEach(c=>cpData.push([c.fecha||'',c.proveedor||'',c.producto||'',c.cantidad||0,c.costoUnit||0,c.total||0,c.notas||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cpData), 'Compras');
+
+  // ── Hoja 7: Clientes ──
   const cData=[['Nombre','Teléfono','Correo','Dirección']];
   clientes.forEach(c=>cData.push([c.nombre,c.tel||'',c.email||'',c.dir||'']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cData), 'Clientes');
@@ -2922,6 +2989,136 @@ function delGasto(id) {
   showConfirm('Eliminar gasto','¿Deseas eliminar este gasto?',()=>{
     LS.set('ej_gastos',(LS.get('ej_gastos')||[]).filter(x=>x.id!==id));
     renderGastos();toast('Gasto eliminado');
+  });
+}
+
+// ═══════════════════════════════════════
+// COMPRAS
+// ═══════════════════════════════════════
+function renderCompras() {
+  const compras = LS.get('ej_compras')||[];
+  const q = (document.getElementById('compraSearch')||{}).value?.toLowerCase()||'';
+  const mf = (document.getElementById('compraMonthFilter')||{}).value||'';
+  let filtered = compras.slice().reverse();
+  if(q) filtered = filtered.filter(c=>(c.proveedor||'').toLowerCase().includes(q)||(c.producto||'').toLowerCase().includes(q));
+  if(mf) filtered = filtered.filter(c=>c.fecha&&c.fecha.startsWith(mf));
+
+  // Resumen
+  const totalMes = filtered.reduce((s,c)=>s+(+c.total||0),0);
+  const totalItems = filtered.reduce((s,c)=>s+(+c.cantidad||0),0);
+  const resEl = document.getElementById('comprasResumen');
+  if(resEl) resEl.innerHTML=`<div class="stat-cards" style="grid-template-columns:repeat(3,1fr)">
+    <div class="stat-card"><div class="stat-label">Total compras</div><div class="stat-value">${fmt(totalMes)}</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Registros</div><div class="stat-value">${filtered.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Unidades</div><div class="stat-value">${totalItems}</div></div>
+  </div>`;
+
+  const el = document.getElementById('comprasContent');
+  if(!el)return;
+  if(!filtered.length){
+    el.innerHTML='<div class="empty-state"><p>Sin compras registradas</p></div>';
+    return;
+  }
+  el.innerHTML=`<div class="table-wrap"><table>
+    <thead><tr><th>Fecha</th><th>Proveedor</th><th>Producto</th><th>Cant.</th><th>Costo Unit.</th><th>Total</th><th>Notas</th><th>Acciones</th></tr></thead>
+    <tbody>${filtered.map(c=>`<tr>
+      <td>${c.fecha||''}</td>
+      <td style="font-weight:600">${c.proveedor||''}</td>
+      <td>${c.producto||''}</td>
+      <td style="text-align:center">${c.cantidad||0}</td>
+      <td>${fmt(c.costoUnit||0)}</td>
+      <td style="font-weight:700">${fmt(c.total||0)}</td>
+      <td style="font-size:12px;color:var(--gray-400)">${c.notas||''}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-icon btn-sm" onclick="delCompra('${c.id}')">🗑️</button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function openCompraModal() {
+  // Populate product selector
+  const prods = LS.get('ej_inventario')||[];
+  const sel = document.getElementById('cmpProductoSel');
+  if(sel){
+    sel.innerHTML='<option value="">-- Seleccionar producto --</option>'+
+      prods.map(p=>`<option value="${p.id}" data-costo="${p.costPrice||0}">${p.name}</option>`).join('');
+  }
+  document.getElementById('cmpFecha').value=todayStr();
+  document.getElementById('cmpProveedor').value='';
+  document.getElementById('cmpProductoNombre').value='';
+  document.getElementById('cmpCantidad').value='1';
+  document.getElementById('cmpCostoUnit').value='';
+  document.getElementById('cmpTotal').value='';
+  document.getElementById('cmpNotas').value='';
+  openModal('compraModalOv');
+}
+
+function cmpCalcTotal() {
+  const qty = +document.getElementById('cmpCantidad').value||0;
+  const cu  = +document.getElementById('cmpCostoUnit').value||0;
+  document.getElementById('cmpTotal').value = (qty*cu).toFixed(2);
+}
+
+function cmpOnProductSelect() {
+  const sel = document.getElementById('cmpProductoSel');
+  const opt = sel.options[sel.selectedIndex];
+  const costo = opt ? (+opt.dataset.costo||0) : 0;
+  document.getElementById('cmpCostoUnit').value = costo||'';
+  cmpCalcTotal();
+}
+
+function saveCompra() {
+  const fecha   = document.getElementById('cmpFecha').value;
+  const proveedor = document.getElementById('cmpProveedor').value.trim();
+  const sel     = document.getElementById('cmpProductoSel');
+  const prodId  = sel.value;
+  const prodNombre = prodId
+    ? (sel.options[sel.selectedIndex]||{}).text||document.getElementById('cmpProductoNombre').value.trim()
+    : document.getElementById('cmpProductoNombre').value.trim();
+  const cantidad  = +document.getElementById('cmpCantidad').value||0;
+  const costoUnit = +document.getElementById('cmpCostoUnit').value||0;
+  const total     = +document.getElementById('cmpTotal').value||(cantidad*costoUnit);
+  const notas     = document.getElementById('cmpNotas').value.trim();
+
+  if(!proveedor){toast('Ingresa el nombre del proveedor','error');return;}
+  if(!prodNombre&&!prodId){toast('Selecciona o escribe el nombre del producto','error');return;}
+  if(!cantidad||!costoUnit){toast('Cantidad y costo unitario son obligatorios','error');return;}
+
+  // Update stock if product was selected from inventory
+  if(prodId){
+    const inv = LS.get('ej_inventario')||[];
+    const idx = inv.findIndex(p=>p.id===prodId);
+    if(idx>=0){
+      inv[idx].stock = (+inv[idx].stock||0)+cantidad;
+      LS.set('ej_inventario', inv);
+    }
+  }
+
+  const obj = {
+    id: uid(),
+    fecha: fecha||todayStr(),
+    proveedor,
+    productoId: prodId||null,
+    producto: prodNombre,
+    cantidad,
+    costoUnit,
+    total: total||(cantidad*costoUnit),
+    notas,
+    createdAt: new Date().toISOString()
+  };
+  const compras = LS.get('ej_compras')||[];
+  compras.push(obj);
+  LS.set('ej_compras', compras);
+  closeModal('compraModalOv');
+  renderCompras();
+  toast('Compra registrada'+(prodId?' — stock actualizado':''));
+}
+
+function delCompra(id) {
+  showConfirm('Eliminar compra','¿Deseas eliminar este registro de compra?',()=>{
+    LS.set('ej_compras',(LS.get('ej_compras')||[]).filter(x=>x.id!==id));
+    renderCompras();toast('Compra eliminada');
   });
 }
 
